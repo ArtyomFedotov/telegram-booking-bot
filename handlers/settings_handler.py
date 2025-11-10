@@ -1,0 +1,276 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+from database.models import session, User, PremiumSubscription, Client, Service, Appointment
+from keyboards import (
+    get_main_keyboard, get_settings_keyboard,
+    get_premium_keyboard, get_premium_plans_keyboard
+)
+from datetime import datetime, timedelta
+from sqlalchemy import func
+
+async def settings_menu(update: Update, context: CallbackContext):
+    """Меню настроек"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    
+    if not user:
+        await update.message.reply_text("Сначала завершите регистрацию через /start")
+        return
+    
+    # Проверяем премиум статус
+    premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+    premium_status = "✅ АКТИВЕН" if premium else "❌ НЕ АКТИВЕН"
+    
+    settings_text = (
+        "⚙️ **Настройки**\n\n"
+        f"💎 Премиум статус: {premium_status}\n\n"
+        "Выберите раздел для настройки:"
+    )
+    
+    await update.message.reply_text(
+        settings_text,
+        reply_markup=get_settings_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def premium_features(update: Update, context: CallbackContext):
+    """Премиум функции"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+    
+    if premium:
+        premium_status = "✅ Активен (PRO)"
+        expires = premium.expires_at.strftime('%d.%m.%Y') if premium.expires_at else "Не ограничено"
+        status_text = f"Действует до: {expires}"
+    else:
+        premium_status = "❌ Не активен"
+        # Показываем текущее использование
+        clients_count = session.query(Client).filter_by(user_id=user.id).count()
+        services_count = session.query(Service).filter_by(user_id=user.id).count()
+        status_text = f"Использовано: {clients_count}/10 клиентов, {services_count}/5 услуг"
+    
+    premium_text = (
+        "💎 **PRO версия**\n\n"
+        f"**Статус:** {premium_status}\n"
+        f"**{status_text}**\n\n"
+        "**🚀 PRO включает:**\n"
+        "• 👥 Неограниченное количество клиентов\n"
+        "• 💼 Неограниченное количество услуг\n"
+        "• 📊 Доступ к статистике\n\n"
+        "**Попробуйте бесплатно 14 дней!**"
+    )
+    
+    await update.message.reply_text(
+        premium_text,
+        reply_markup=get_premium_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def buy_premium(update: Update, context: CallbackContext):
+    """Покупка премиума"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    
+    # Текущее использование
+    clients_count = session.query(Client).filter_by(user_id=user.id).count()
+    services_count = session.query(Service).filter_by(user_id=user.id).count()
+    
+    premium_text = (
+        "💰 **Выберите тариф PRO версии**\n\n"
+        f"**Текущее использование:**\n"
+        f"• Клиенты: {clients_count}/10\n"
+        f"• Услуги: {services_count}/5\n\n"
+        "**💼 PRO - 299₽/мес**\n"
+        "• Неограниченно клиентов\n"
+        "• Неограниченно услуг\n\n"
+        "**📅 PRO ГОД - 2990₽/год**\n"
+        "• Всё то же + 2 месяца бесплатно!\n"
+        "• Экономия 590₽\n\n"
+        "**Снять все ограничения!**"
+    )
+    
+    await update.message.reply_text(
+        premium_text,
+        reply_markup=get_premium_plans_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def process_premium_purchase(update: Update, context: CallbackContext):
+    """Обработка покупки премиума"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    
+    if update.message.text == '💼 PRO - 299₽/мес':
+        plan_type = 'pro'
+        price = 299
+        days = 30
+        
+        success_text = (
+            f"🎉 **Поздравляем! Вы приобрели PRO версию!**\n\n"
+            f"💳 **Стоимость:** {price}₽/мес\n"
+            f"📅 **Действует 30 дней**\n\n"
+            "**Теперь вам доступны все PRO функции!**\n"
+            "Для оплаты свяжитесь с администратором."
+        )
+        
+    elif update.message.text == '📅 PRO ГОД - 2990₽/год':
+        plan_type = 'pro_year'
+        price = 2990
+        days = 365
+        
+        success_text = (
+            f"🎉 **Поздравляем! Вы приобрели PRO ГОД!**\n\n"
+            f"💳 **Стоимость:** {price}₽/год\n"
+            f"📅 **Действует 365 дней**\n"
+            f"💰 **Экономия:** 590₽ (2 месяца бесплатно!)\n\n"
+            "**Теперь вам доступны все PRO функции!**\n"
+            "Для оплаты свяжитесь с администратором."
+        )
+    else:
+        await update.message.reply_text(
+            "Пожалуйста, выберите вариант из списка:",
+            reply_markup=get_premium_plans_keyboard()
+        )
+        return
+    
+    # Удаляем старую подписку если есть
+    old_sub = session.query(PremiumSubscription).filter_by(user_id=user.id).first()
+    if old_sub:
+        session.delete(old_sub)
+    
+    # Создаем новую подписку
+    new_sub = PremiumSubscription(
+        user_id=user.id,
+        plan_type=plan_type,
+        is_active=True,
+        expires_at=datetime.now() + timedelta(days=days)
+    )
+    session.add(new_sub)
+    session.commit()
+    
+    await update.message.reply_text(
+        success_text,
+        reply_markup=get_premium_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def show_statistics(update: Update, context: CallbackContext):
+    """Показывает статистику мастера - ТОЛЬКО ДЛЯ PRO"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    
+    if not user:
+        await update.message.reply_text("Сначала завершите регистрацию через /start")
+        return
+    
+    # ПРОВЕРКА ПРЕМИУМА
+    premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+    if not premium:
+        await update.message.reply_text(
+            "❌ **Статистика доступна только в PRO версии!**\n\n"
+            "💎 **PRO версия включает:**\n"
+            "• Неограниченное количество клиентов\n"
+            "• Неограниченное количество услуг\n"
+            "• Полный доступ к статистике\n\n"
+            "Всего от 299₽/мес!",
+            reply_markup=get_premium_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+    
+    # СТАТИСТИКА ДЛЯ PRO ПОЛЬЗОВАТЕЛЕЙ
+    clients_count = session.query(Client).filter_by(user_id=user.id).count()
+    services_count = session.query(Service).filter_by(user_id=user.id).count()
+    appointments_count = session.query(Appointment).filter_by(user_id=user.id).count()
+    
+    active_appointments = session.query(Appointment).filter(
+        Appointment.user_id == user.id,
+        Appointment.datetime >= datetime.now(),
+        Appointment.status == 'booked'
+    ).count()
+    
+    stats_text = (
+        "📊 **Ваша статистика PRO**\n\n"
+        f"👥 **Клиенты:** {clients_count}\n"
+        f"💼 **Услуги:** {services_count}\n"
+        f"📅 **Всего записей:** {appointments_count}\n"
+        f"🟢 **Активные записи:** {active_appointments}\n"
+    )
+    
+    await update.message.reply_text(
+        stats_text,
+        reply_markup=get_settings_keyboard(),  # ВОЗВРАЩАЕМСЯ В МЕНЮ НАСТРОЕК
+        parse_mode='Markdown'
+    )
+
+async def user_profile(update: Update, context: CallbackContext):
+    """Профиль пользователя"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+    
+    profile_text = (
+        "👤 **Ваш профиль**\n\n"
+        f"📛 Имя: {user.full_name}\n"
+        f"💼 Специальность: {user.specialty}\n"
+        f"📞 Телефон: {user.phone}\n"
+        f"📅 В системе с: {user.created_at.strftime('%d.%m.%Y')}\n"
+        f"💎 PRO версия: {'✅ АКТИВЕН' if premium else '❌ НЕ АКТИВЕН'}\n"
+    )
+    
+    if premium:
+        plan_name = "PRO ГОД" if premium.plan_type == 'pro_year' else "PRO"
+        profile_text += f"📋 Тариф: {plan_name}\n"
+        if premium.expires_at:
+            days_left = (premium.expires_at - datetime.now()).days
+            profile_text += f"📅 Действует до: {premium.expires_at.strftime('%d.%m.%Y')}\n"
+            profile_text += f"⏰ Осталось дней: {days_left}\n"
+    
+    await update.message.reply_text(
+        profile_text,
+        reply_markup=get_settings_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def try_free_trial(update: Update, context: CallbackContext):
+    """Активация бесплатного пробного периода"""
+    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    
+    if not user:
+        await update.message.reply_text("Сначала завершите регистрацию через /start")
+        return
+    
+    # Проверяем, есть ли уже активная подписка
+    existing_premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+    if existing_premium:
+        await update.message.reply_text(
+            "✅ У вас уже активирована PRO версия!",
+            reply_markup=get_premium_keyboard()
+        )
+        return
+    
+    # Проверяем, использовал ли пользователь уже пробный период
+    used_trial = session.query(PremiumSubscription).filter_by(user_id=user.id).first()
+    if used_trial:
+        await update.message.reply_text(
+            "❌ Вы уже использовали бесплатный пробный период.\n\n"
+            "Приобретите PRO версию для доступа ко всем функциям!",
+            reply_markup=get_premium_keyboard()
+        )
+        return
+    
+    # Активируем пробный период на 14 дней
+    trial_sub = PremiumSubscription(
+        user_id=user.id,
+        plan_type='trial',
+        is_active=True,
+        expires_at=datetime.now() + timedelta(days=14)
+    )
+    session.add(trial_sub)
+    session.commit()
+    
+    await update.message.reply_text(
+        "🎉 **Бесплатный пробный период активирован!**\n\n"
+        "Теперь вам доступны все PRO функции на 14 дней:\n"
+        "• 👥 Неограниченное количество клиентов\n"
+        "• 💼 Неограниченное количество услуг\n"
+        "• 📊 Полная статистика\n\n"
+        "Пробный период действует до: " + trial_sub.expires_at.strftime('%d.%m.%Y'),
+        reply_markup=get_premium_keyboard(),
+        parse_mode='Markdown'
+    )
