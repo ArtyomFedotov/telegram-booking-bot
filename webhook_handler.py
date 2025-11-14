@@ -25,6 +25,21 @@ def yookassa_webhook():
             payment_data = data.get('object', {})
             metadata = payment_data.get('metadata', {})
             
+            # 🔽 ДОБАВЛЯЕМ ПРОВЕРКУ ОТ ДУБЛЕЙ
+            payment_id = payment_data.get('id')
+            
+            # Проверяем не обрабатывали ли мы уже ЭТОТ платеж
+            conn = sqlite3.connect('bot.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM premium_subscriptions WHERE payment_id = ?', (payment_id,))
+            existing_payment = cursor.fetchone()
+            
+            if existing_payment:
+                logger.info(f"Игнорируем ДУБЛЬ платежа {payment_id}")
+                conn.close()
+                return jsonify({'status': 'duplicate_payment'}), 200
+            # 🔼 КОНЕЦ ПРОВЕРКИ
+            
             # Проверяем тип продукта
             product_type = metadata.get('product_type')
             user_id = metadata.get('user_id')
@@ -41,18 +56,15 @@ def yookassa_webhook():
                 else:
                     plan_type = 'pro'  # fallback
                 
-                # Сохраняем в базу данных
-                conn = sqlite3.connect('bot.db')
-                cursor = conn.cursor()
-                
                 # Рассчитываем дату окончания подписки
                 expires_at = (datetime.now() + timedelta(days=duration_days)).strftime('%Y-%m-%d %H:%M:%S')
                 
+                # Сохраняем в базу данных С payment_id
                 cursor.execute('''
                     INSERT OR REPLACE INTO premium_subscriptions 
-                    (user_id, plan_type, is_active, expires_at, created_at) 
-                    VALUES (?, ?, ?, ?, datetime('now'))
-                ''', (user_id, plan_type, 1, expires_at))
+                    (user_id, plan_type, is_active, expires_at, created_at, payment_id) 
+                    VALUES (?, ?, ?, ?, datetime('now'), ?)
+                ''', (user_id, plan_type, 1, expires_at, payment_id))
                 
                 conn.commit()
                 conn.close()
@@ -72,11 +84,7 @@ def yookassa_webhook():
                         f"🎉 **Ваша PRO подписка активирована!**\n\n"
                         f"✅ {period_text.capitalize()} подписка успешно активирована!\n"
                         f"📅 Действует до: {expires_at.split()[0]}\n\n"
-                        f"Теперь вам доступны:\n"
-                        f"• 👥 Неограниченное количество клиентов\n"
-                        f"• 💼 Неограниченное количество услуг\n"
-                        f"• 📊 Полная статистика и аналитика\n"
-                        f"• 🎯 Все PRO функции бота"
+                        f"Теперь вам доступны все PRO функции!"
                     )
                     
                     # Клавиатура с кнопками
@@ -94,7 +102,6 @@ def yookassa_webhook():
                         "reply_markup": keyboard
                     })
                     
-                    
                     if response.status_code == 200:
                         logger.info(f"Уведомление отправлено пользователю {user_id}")
                     else:
@@ -105,6 +112,7 @@ def yookassa_webhook():
                 
             else:
                 logger.warning(f"Неизвестный тип продукта или отсутствует user_id: {product_type}")
+                conn.close()
         
         return jsonify({'status': 'success'}), 200
         
