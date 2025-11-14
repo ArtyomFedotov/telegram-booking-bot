@@ -93,7 +93,7 @@ def yookassa_webhook():
                         "chat_id": user_id,
                         "text": message_text,
                         "parse_mode": "Markdown",
-                        "reply_markup": keyboard
+                        
                     })
                     
                     if response.status_code == 200:
