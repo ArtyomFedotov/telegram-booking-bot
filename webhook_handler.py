@@ -8,58 +8,50 @@ from datetime import datetime, timedelta
 from config import BOT_TOKEN
 
 app = Flask(__name__)
-
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @app.route('/webhook/yookassa', methods=['POST'])
 def yookassa_webhook():
     try:
-        # Получаем данные от ЮKassa
         data = request.get_json()
         logger.info(f"Получен вебхук: {json.dumps(data, ensure_ascii=False)}")
         
-        # Обрабатываем успешный платеж
         if data.get('event') == 'payment.succeeded':
             payment_data = data.get('object', {})
             metadata = payment_data.get('metadata', {})
             
-            # 🔽 ДОБАВЛЯЕМ ПРОВЕРКУ ОТ ДУБЛЕЙ
             payment_id = payment_data.get('id')
-            
-            # Проверяем не обрабатывали ли мы уже ЭТОТ платеж
-            conn = sqlite3.connect('bot.db')
-            cursor = conn.cursor()
-            cursor.execute('SELECT id FROM premium_subscriptions WHERE payment_id = ?', (payment_id,))
-            existing_payment = cursor.fetchone()
-            
-            if existing_payment:
-                logger.info(f"Игнорируем ДУБЛЬ платежа {payment_id}")
-                conn.close()
-                return jsonify({'status': 'duplicate_payment'}), 200
-            # 🔼 КОНЕЦ ПРОВЕРКИ
-            
-            # Проверяем тип продукта
             product_type = metadata.get('product_type')
-            user_id = metadata.get('user_id')
+            telegram_id = metadata.get('user_id')  # это telegram_id
             
-            if product_type == 'premium' and user_id:
-                # Активируем премиум подписку
+            if product_type == 'premium' and telegram_id:
+                conn = sqlite3.connect('bot.db')
+                cursor = conn.cursor()
+                
+                # 🔽 ИСПРАВЛЕНИЕ: Находим user_id из таблицы users
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
+                user = cursor.fetchone()
+                if not user:
+                    logger.error(f"User with telegram_id {telegram_id} not found")
+                    conn.close()
+                    return jsonify({'status': 'user_not_found'}), 200
+                
+                user_id = user[0]  # правильный user_id из таблицы users
+                # 🔼 КОНЕЦ ИСПРАВЛЕНИЯ
+                
+                # Проверяем дубли
+                cursor.execute('SELECT id FROM premium_subscriptions WHERE payment_id = ?', (payment_id,))
+                if cursor.fetchone():
+                    logger.info(f"Дубль платежа {payment_id}")
+                    conn.close()
+                    return jsonify({'status': 'duplicate'}), 200
+                
                 duration_days = int(metadata.get('duration_days', 30))
-                
-                # Определяем тип плана по количеству дней
-                if duration_days == 30:
-                    plan_type = 'pro'
-                elif duration_days == 365:
-                    plan_type = 'pro_year'
-                else:
-                    plan_type = 'pro'  # fallback
-                
-                # Рассчитываем дату окончания подписки
+                plan_type = 'pro_year' if duration_days == 365 else 'pro'
                 expires_at = (datetime.now() + timedelta(days=duration_days)).strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Сохраняем в базу данных С payment_id
+                # Активируем подписку с правильным user_id
                 cursor.execute('''
                     INSERT OR REPLACE INTO premium_subscriptions 
                     (user_id, plan_type, is_active, expires_at, created_at, payment_id) 
@@ -69,49 +61,24 @@ def yookassa_webhook():
                 conn.commit()
                 conn.close()
                 
-                logger.info(f"Премиум подписка {plan_type} активирована для пользователя {user_id}, expires: {expires_at}")
+                logger.info(f"Подписка активирована для user_id {user_id} (telegram: {telegram_id})")
                 
-                # Отправляем уведомление пользователю в Telegram
+                # Отправляем уведомление
                 try:
-                    telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                    
-                    if plan_type == 'pro_year':
-                        period_text = "годовая"
-                    else:
-                        period_text = "месячная"
-                    
-                    message_text = (
-                        f"🎉 **Ваша PRO подписка активирована!**\n\n"
-                        f"✅ {period_text.capitalize()} подписка успешно активирована!\n"
-                        f"📅 Действует до: {expires_at.split()[0]}\n\n"
-                        f"Теперь вам доступны все PRO функции!"
-                    )
-                    
-                    
-
-                    response = requests.post(telegram_url, json={
-                        "chat_id": user_id,
+                    message_text = f"🎉 **Ваша PRO подписка активирована!**\n\n✅ Подписка действительна до: {expires_at.split()[0]}"
+                    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": telegram_id,  # отправляем на telegram_id
                         "text": message_text,
-                        "parse_mode": "Markdown",
-                        
+                        "parse_mode": "Markdown"
                     })
-                    
-                    if response.status_code == 200:
-                        logger.info(f"Уведомление отправлено пользователю {user_id}")
-                    else:
-                        logger.error(f"Ошибка отправки уведомления: {response.text}")
-                        
+                    logger.info(f"Уведомление отправлено {telegram_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления: {str(e)}")
-                
-            else:
-                logger.warning(f"Неизвестный тип продукта или отсутствует user_id: {product_type}")
-                conn.close()
+                    logger.error(f"Ошибка уведомления: {str(e)}")
         
         return jsonify({'status': 'success'}), 200
         
     except Exception as e:
-        logger.error(f"Ошибка обработки вебхука: {str(e)}")
+        logger.error(f"Ошибка вебхука: {str(e)}")
         return jsonify({'status': 'error'}), 500
 
 if __name__ == '__main__':
