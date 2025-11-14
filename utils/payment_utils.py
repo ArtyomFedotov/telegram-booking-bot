@@ -26,7 +26,7 @@ async def create_premium_payment(user_id: int, amount: float, description: str, 
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": "https://t.me/your_bot_username?start=payment_success"
+                    "return_url": "https://t.me/ClientsBookBot?start=payment_success"
                 },
                 "capture": True,
                 "description": description,

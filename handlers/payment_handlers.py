@@ -127,9 +127,15 @@ async def check_payment_status(update: Update, context: CallbackContext):
         await query.edit_message_text("❌ Не удалось проверить статус платежа")
         return ConversationHandler.END
     
-    if payment_info.status == 'succeeded':
-        # Активируем подписку
-        success = await activate_premium_subscription(user_id, duration_days)
+    # Проверяем статус платежа И наличие активной подписки
+    from utils.payment_utils import check_premium_status
+    
+    if payment_info.status == 'succeeded' or check_premium_status(user_id):
+        # Если подписка еще не активирована - активируем
+        if not check_premium_status(user_id):
+            success = await activate_premium_subscription(user_id, duration_days)
+        else:
+            success = True
         
         if success:
             expiry_date = await get_premium_expiry(user_id)
@@ -143,7 +149,7 @@ async def check_payment_status(update: Update, context: CallbackContext):
             else:
                 text = "🎉 **Оплата успешно завершена!**\n\n✅ PRO подписка активирована!"
         else:
-            text = "❌ Ошибка при активации подписки. Свяжитесь с поддержкой."
+            text = "⏳ Подписка активируется, попробуйте через минуту"
     elif payment_info.status == 'pending':
         text = "⏳ Платеж еще обрабатывается. Попробуйте проверить статус через несколько минут."
     elif payment_info.status == 'canceled':
