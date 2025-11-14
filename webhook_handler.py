@@ -40,7 +40,18 @@ def yookassa_webhook():
                 user_id = user[0]  # правильный user_id из таблицы users
                 # 🔼 КОНЕЦ ИСПРАВЛЕНИЯ
                 
-                # Проверяем дубли
+                # 🛡️ ЗАЩИТА ОТ ДУБЛЕЙ: Проверяем есть ли активная подписка
+                cursor.execute('''
+                    SELECT id FROM premium_subscriptions 
+                    WHERE user_id = ? AND expires_at > datetime('now')
+                ''', (user_id,))
+                
+                if cursor.fetchone():
+                    logger.warning(f"У user_id {user_id} уже есть активная подписка. Пропускаем платеж {payment_id}")
+                    conn.close()
+                    return jsonify({'status': 'already_active'}), 200
+                
+                # Дополнительная проверка на дубли payment_id (на всякий случай)
                 cursor.execute('SELECT id FROM premium_subscriptions WHERE payment_id = ?', (payment_id,))
                 if cursor.fetchone():
                     logger.info(f"Дубль платежа {payment_id}")
