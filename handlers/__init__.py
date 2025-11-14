@@ -9,8 +9,8 @@ from .master_tools import get_booking_link, show_client_appointments
 from .clients_handlers import (clients_menu, show_my_clients, show_client_appointments, 
                               show_all_appointments, show_my_appointments_handler)
 from .settings_handler import (
-    settings_menu, premium_features, buy_premium, process_premium_purchase,
-    show_statistics, user_profile, try_free_trial  # ДОБАВЬТЕ try_free_trial
+    settings_menu, premium_features, process_premium_purchase,
+    show_statistics, user_profile, try_free_trial
 )
 from .booking import (start_booking, select_client, select_service, select_date, 
                      select_time, confirm_booking, show_active_appointments,

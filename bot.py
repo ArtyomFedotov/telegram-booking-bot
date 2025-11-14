@@ -20,7 +20,7 @@ from handlers.clients_handlers import (
     show_my_appointments_handler
 )
 from handlers.settings_handler import (
-    settings_menu, premium_features, buy_premium, process_premium_purchase,
+    settings_menu, premium_features, process_premium_purchase,
     show_statistics, user_profile, try_free_trial
 )
 from handlers.booking import start_booking, select_client, select_service, select_date, select_time, confirm_booking, show_active_appointments, SELECT_CLIENT, SELECT_SERVICE, SELECT_DATE, SELECT_TIME, CONFIRM_BOOKING
@@ -43,6 +43,7 @@ from handlers.admin_handlers import (
     remove_premium, remove_all_premiums, view_system_stats, view_all_users
 )
 from handlers.client_commands import client_profile
+from handlers.payment_handlers import setup_payment_handlers
 
 
 logging.basicConfig(
@@ -229,7 +230,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex('^📊 Статистика$'), lambda update, context: show_statistics(update, context)))
     
     # Обработчики премиума
-    application.add_handler(MessageHandler(filters.Regex('^💰 Купить премиум$'), buy_premium))
+    application.add_handler(MessageHandler(filters.Regex('^💰 Купить премиум$'), premium_features))  # Изменено с buy_premium на premium_features
     application.add_handler(MessageHandler(filters.Regex('^💼 PRO - 299₽/мес$|^📅 PRO ГОД - 2990₽/год$'), process_premium_purchase))
     application.add_handler(MessageHandler(filters.Regex('^🆓 Попробовать бесплатно$'), try_free_trial))
     
@@ -245,6 +246,8 @@ def main():
     application.add_handler(MessageHandler(filters.Regex('^💎 Выдать PRO:'), give_premium_to_user))
     application.add_handler(MessageHandler(filters.Regex('^❌ Удалить PRO:'), remove_premium))
     
+    # Добавляем обработчики платежей
+    setup_payment_handlers(application)
     
     # Обработчики навигации в настройках
     application.add_handler(MessageHandler(filters.Regex('^🔙 Назад в настройки$'), settings_menu))

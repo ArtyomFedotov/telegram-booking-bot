@@ -7,6 +7,8 @@ from keyboards import (
 )
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from utils.payment_utils import create_premium_payment, activate_premium_subscription
 
 async def settings_menu(update: Update, context: CallbackContext):
     """Меню настроек"""
@@ -33,65 +35,86 @@ async def settings_menu(update: Update, context: CallbackContext):
     )
 
 async def premium_features(update: Update, context: CallbackContext):
-    """Премиум функции"""
+    """Премиум функции с инлайн кнопками"""
     user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
     premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
     
     if premium:
         premium_status = "✅ Активен (PRO)"
-        expires = premium.expires_at.strftime('%d.%m.%Y') if premium.expires_at else "Не ограничено"
-        status_text = f"Действует до: {expires}"
+        if premium.expires_at:
+            days_left = (premium.expires_at - datetime.now()).days
+            status_text = f"Действует до: {premium.expires_at.strftime('%d.%m.%Y')}\nОсталось дней: {days_left}"
+        else:
+            status_text = "Бессрочная"
+        
+        premium_text = (
+            "💎 **PRO версия**\n\n"
+            f"**Статус:** {premium_status}\n"
+            f"**{status_text}**\n\n"
+            "✅ Все PRO функции активны!"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад в настройки", callback_data="back_to_settings")]
+        ]
+        
     else:
         premium_status = "❌ Не активен"
-        # Показываем текущее использование
         clients_count = session.query(Client).filter_by(user_id=user.id).count()
         services_count = session.query(Service).filter_by(user_id=user.id).count()
         status_text = f"Использовано: {clients_count}/10 клиентов, {services_count}/5 услуг"
-    
-    premium_text = (
-        "💎 **PRO версия**\n\n"
-        f"**Статус:** {premium_status}\n"
-        f"**{status_text}**\n\n"
-        "**🚀 PRO включает:**\n"
-        "• 👥 Неограниченное количество клиентов\n"
-        "• 💼 Неограниченное количество услуг\n"
-        "• 📊 Доступ к статистике\n\n"
-        "**Попробуйте бесплатно 14 дней!**"
-    )
+        
+        premium_text = (
+            "💎 **PRO версия**\n\n"
+            f"**Статус:** {premium_status}\n"
+            f"**{status_text}**\n\n"
+            "**🚀 PRO включает:**\n"
+            "• 👥 Неограниченное количество клиентов\n"
+            "• 💼 Неограниченное количество услуг\n"
+            "• 📊 Доступ к статистике\n\n"
+            "**Выберите тариф:**"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("💼 PRO - 299₽/мес", callback_data="buy_pro")],
+            [InlineKeyboardButton("📅 PRO ГОД - 2990₽/год", callback_data="buy_pro_year")],
+            [InlineKeyboardButton("🆓 Попробовать бесплатно", callback_data="try_free")],
+            [InlineKeyboardButton("🔙 Назад в настройки", callback_data="back_to_settings")]
+        ]
     
     await update.message.reply_text(
         premium_text,
-        reply_markup=get_premium_keyboard(),
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
 
-async def buy_premium(update: Update, context: CallbackContext):
-    """Покупка премиума"""
-    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+#async def buy_premium(update: Update, context: CallbackContext):
+    #"""Покупка премиума"""
+    #user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
     
     # Текущее использование
-    clients_count = session.query(Client).filter_by(user_id=user.id).count()
-    services_count = session.query(Service).filter_by(user_id=user.id).count()
+    #clients_count = session.query(Client).filter_by(user_id=user.id).count()
+    #services_count = session.query(Service).filter_by(user_id=user.id).count()
     
-    premium_text = (
-        "💰 **Выберите тариф PRO версии**\n\n"
-        f"**Текущее использование:**\n"
-        f"• Клиенты: {clients_count}/10\n"
-        f"• Услуги: {services_count}/5\n\n"
-        "**💼 PRO - 299₽/мес**\n"
-        "• Неограниченно клиентов\n"
-        "• Неограниченно услуг\n\n"
-        "**📅 PRO ГОД - 2990₽/год**\n"
-        "• Всё то же + 2 месяца бесплатно!\n"
-        "• Экономия 590₽\n\n"
-        "**Снять все ограничения!**"
-    )
+    #premium_text = (
+        #"💰 **Выберите тариф PRO версии**\n\n"
+        #f"**Текущее использование:**\n"
+        #f"• Клиенты: {clients_count}/10\n"
+        #f"• Услуги: {services_count}/5\n\n"
+        #"**💼 PRO - 299₽/мес**\n"
+        #"• Неограниченно клиентов\n"
+        #"• Неограниченно услуг\n\n"
+        #"**📅 PRO ГОД - 2990₽/год**\n"
+        #"• Всё то же + 2 месяца бесплатно!\n"
+        #"• Экономия 590₽\n\n"
+        #"**Снять все ограничения!**"
+    #)
     
-    await update.message.reply_text(
-        premium_text,
-        reply_markup=get_premium_plans_keyboard(),
-        parse_mode='Markdown'
-    )
+    #await update.message.reply_text(
+        #premium_text,
+        #reply_markup=get_premium_plans_keyboard(),
+        #parse_mode='Markdown'
+    #)
 
 async def process_premium_purchase(update: Update, context: CallbackContext):
     """Обработка покупки премиума"""
@@ -274,3 +297,21 @@ async def try_free_trial(update: Update, context: CallbackContext):
         reply_markup=get_premium_keyboard(),
         parse_mode='Markdown'
     )
+
+async def handle_premium_callbacks(update: Update, context: CallbackContext):
+    """Обработка callback от кнопок премиума"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'try_free':
+        return await try_free_trial(update, context)
+    elif query.data == 'back_to_settings':
+        await query.edit_message_text(
+            "Возврат в настройки",
+            reply_markup=get_settings_keyboard()
+        )
+    else:
+        await query.edit_message_text(
+            "Эта функция в разработке",
+            parse_mode='Markdown'
+        )
