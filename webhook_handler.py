@@ -87,13 +87,7 @@ def yookassa_webhook():
                         f"Теперь вам доступны все PRO функции!"
                     )
                     
-                    # Клавиатура с кнопками
-                    keyboard = {
-                        "inline_keyboard": [[
-                            {"text": "💎 Премиум функции", "callback_data": "premium_features"},
-                            {"text": "🔙 Главное меню", "callback_data": "main_menu"}
-                        ]]
-                    }
+                    
 
                     response = requests.post(telegram_url, json={
                         "chat_id": user_id,
