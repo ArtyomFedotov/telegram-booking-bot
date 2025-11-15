@@ -96,33 +96,58 @@ async def premium_features(update: Update, context: CallbackContext):
         )
 
 async def process_premium_purchase(update: Update, context: CallbackContext):
-    """Обработка покупки премиума - ПЕРЕНАПРАВЛЯЕМ В ПРОЦЕСС ОПЛАТЫ"""
-    from handlers.payment_handlers import start_payment_process
-    
+    """Обработка покупки премиума - СОХРАНЯЕМ ДАННЫЕ ДЛЯ ОПЛАТЫ"""
     user_message = update.message.text
     
     if user_message == '💼 PRO - 299₽/мес':
-        # ПЕРЕНАПРАВЛЯЕМ в процесс оплаты из payment_handlers.py
-        context.user_data['plan_type'] = 'pro'
-        return await start_payment_process(update, context)
-        
+        plan_type = 'pro'
+        amount = 299
+        duration_days = 30
+        period = "1 месяц"
     elif user_message == '📅 PRO ГОД - 2990₽/год':
-        # ПЕРЕНАПРАВЛЯЕМ в процесс оплаты из payment_handlers.py
-        context.user_data['plan_type'] = 'pro_year' 
-        return await start_payment_process(update, context)
-        
+        plan_type = 'pro_year'
+        amount = 2990
+        duration_days = 365
+        period = "1 год"
     elif user_message == '🆓 Попробовать бесплатно':
         return await try_free_trial(update, context)
-        
     elif user_message == '🔙 Назад в настройки':
         return await settings_menu(update, context)
-        
     else:
         await update.message.reply_text(
             "Пожалуйста, выберите вариант из списка:",
             reply_markup=get_premium_plans_keyboard()
         )
         return
+    
+    # Сохраняем данные для оплаты
+    context.user_data['plan_type'] = plan_type
+    context.user_data['amount'] = amount
+    context.user_data['duration_days'] = duration_days
+    
+    # Показываем подтверждение
+    text = (
+        f"💎 **Оформление PRO подписки**\n\n"
+        f"📋 Тариф: PRO {'ГОД' if plan_type == 'pro_year' else ''}\n"
+        f"💰 Стоимость: {amount}₽\n"
+        f"📅 Срок: {period}\n\n"
+        f"После оплаты вам будут доступны:\n"
+        f"• 👥 Неограниченное количество клиентов\n"
+        f"• 💼 Неограниченное количество услуг\n"
+        f"• 📊 Полная статистика\n\n"
+        f"Для оплаты нажмите кнопку '✅ Перейти к оплате'"
+    )
+    
+    keyboard = [
+        [KeyboardButton("✅ Перейти к оплате")],
+        [KeyboardButton("❌ Отменить")]
+    ]
+    
+    await update.message.reply_text(
+        text,
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        parse_mode='Markdown'
+    )
 
 async def show_statistics(update: Update, context: CallbackContext):
     """Показывает статистику мастера - ТОЛЬКО ДЛЯ PRO"""
