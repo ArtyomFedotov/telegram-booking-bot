@@ -10,13 +10,16 @@ PAYMENT_CONFIRM, PAYMENT_PROCESS = range(2)
 
 async def start_payment_process(update: Update, context: CallbackContext):
     """Начало процесса оплаты"""
-    # Получаем тип плана из текста сообщения
-    message_text = update.message.text
+    # Получаем тип плана из контекста (из settings_handler.py)
+    plan_type = context.user_data.get('plan_type')
     
-    if "PRO ГОД" in message_text:
-        plan_type = 'pro_year'
-    else:
-        plan_type = 'pro'
+    if not plan_type:
+        # Если plan_type не передан, определяем по тексту сообщения
+        message_text = update.message.text
+        if "PRO ГОД" in message_text or "2990" in message_text:
+            plan_type = 'pro_year'
+        else:
+            plan_type = 'pro'
     
     if plan_type not in ['pro', 'pro_year']:
         await update.message.reply_text("❌ Неверный тип подписки")
@@ -87,6 +90,10 @@ async def confirm_payment(update: Update, context: CallbackContext):
     
     # Получаем ссылку для оплаты
     payment_url = payment.confirmation.confirmation_url
+    payment_id = payment.id
+    
+    # Сохраняем payment_id для проверки статуса
+    context.user_data['payment_id'] = payment_id
     
     # ОБЫЧНЫЕ КНОПКИ вместо инлайн
     keyboard = [
@@ -103,8 +110,6 @@ async def confirm_payment(update: Update, context: CallbackContext):
         f"Ссылка для оплаты действительна 24 часа."
     )
     
-    context.user_data['payment_id'] = payment.id
-    
     await update.message.reply_text(
         text,
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
@@ -117,7 +122,6 @@ async def check_payment_status(update: Update, context: CallbackContext):
     """Проверка статуса платежа"""
     payment_id = context.user_data.get('payment_id')
     user_id = update.effective_user.id
-    duration_days = context.user_data.get('duration_days')
     
     if not payment_id:
         await update.message.reply_text("❌ Информация о платеже не найдена")
@@ -130,15 +134,11 @@ async def check_payment_status(update: Update, context: CallbackContext):
         await update.message.reply_text("❌ Не удалось проверить статус платежа")
         return ConversationHandler.END
     
-    # Проверяем статус платежа И наличие активной подписки
-    from utils.payment_utils import check_premium_status
-    
-    if payment_info.status == 'succeeded' or check_premium_status(user_id):
-        # Если подписка еще не активирована - активируем
-        if not check_premium_status(user_id):
-            success = await activate_premium_subscription(user_id, duration_days)
-        else:
-            success = True
+    # Проверяем статус платежа
+    if payment_info.status == 'succeeded':
+        # Платеж успешен - активируем подписку
+        duration_days = context.user_data.get('duration_days', 30)
+        success = await activate_premium_subscription(user_id, duration_days)
         
         if success:
             expiry_date = await get_premium_expiry(user_id)
@@ -153,12 +153,13 @@ async def check_payment_status(update: Update, context: CallbackContext):
                 text = "🎉 **Оплата успешно завершена!**\n\n✅ PRO подписка активирована!"
         else:
             text = "⏳ Подписка активируется, попробуйте через минуту"
+            
     elif payment_info.status == 'pending':
         text = "⏳ Платеж еще обрабатывается. Попробуйте проверить статус через несколько минут."
     elif payment_info.status == 'canceled':
         text = "❌ Платеж отменен."
     else:
-        text = f"📊 Статус платежа: {payment_info.status}"
+        text = f"📊 Статус платежа: {payment_info.status}. Попробуйте позже."
     
     await update.message.reply_text(text, parse_mode='Markdown')
     
@@ -169,6 +170,7 @@ async def check_payment_status(update: Update, context: CallbackContext):
         reply_markup=get_main_keyboard()
     )
     
+    context.user_data.clear()
     return ConversationHandler.END
 
 async def cancel_payment(update: Update, context: CallbackContext):
@@ -195,7 +197,7 @@ async def get_premium_expiry(user_id):
     if user:
         premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
         if premium:
-            return premium.end_date
+            return premium.expires_at
     return None
 
 # Регистрация обработчиков

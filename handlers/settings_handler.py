@@ -96,69 +96,33 @@ async def premium_features(update: Update, context: CallbackContext):
         )
 
 async def process_premium_purchase(update: Update, context: CallbackContext):
-    """Обработка покупки премиума"""
-    user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
+    """Обработка покупки премиума - ПЕРЕНАПРАВЛЯЕМ В ПРОЦЕСС ОПЛАТЫ"""
+    from handlers.payment_handlers import start_payment_process
     
-    if update.message.text == '💼 PRO - 299₽/мес':
-        plan_type = 'pro'
-        price = 299
-        days = 30
-        
-        success_text = (
-            f"🎉 **Поздравляем! Вы приобрели PRO версию!**\n\n"
-            f"💳 **Стоимость:** {price}₽/мес\n"
-            f"📅 **Действует 30 дней**\n\n"
-            "**Теперь вам доступны все PRO функции!**\n"
-            "Для оплаты свяжитесь с администратором."
-        )
-        
-    elif update.message.text == '📅 PRO ГОД - 2990₽/год':
-        plan_type = 'pro_year'
-        price = 2990
-        days = 365
-        
-        success_text = (
-            f"🎉 **Поздравляем! Вы приобрели PRO ГОД!**\n\n"
-            f"💳 **Стоимость:** {price}₽/год\n"
-            f"📅 **Действует 365 дней**\n"
-            f"💰 **Экономия:** 590₽ (2 месяца бесплатно!)\n\n"
-            "**Теперь вам доступны все PRO функции!**\n"
-            "Для оплаты свяжитесь с администратором."
-        )
+    user_message = update.message.text
     
-    elif update.message.text == '🆓 Попробовать бесплатно':
+    if user_message == '💼 PRO - 299₽/мес':
+        # ПЕРЕНАПРАВЛЯЕМ в процесс оплаты из payment_handlers.py
+        context.user_data['plan_type'] = 'pro'
+        return await start_payment_process(update, context)
+        
+    elif user_message == '📅 PRO ГОД - 2990₽/год':
+        # ПЕРЕНАПРАВЛЯЕМ в процесс оплаты из payment_handlers.py
+        context.user_data['plan_type'] = 'pro_year' 
+        return await start_payment_process(update, context)
+        
+    elif user_message == '🆓 Попробовать бесплатно':
         return await try_free_trial(update, context)
-    
-    elif update.message.text == '🔙 Назад в настройки':
+        
+    elif user_message == '🔙 Назад в настройки':
         return await settings_menu(update, context)
-    
+        
     else:
         await update.message.reply_text(
             "Пожалуйста, выберите вариант из списка:",
             reply_markup=get_premium_plans_keyboard()
         )
         return
-    
-    # Удаляем старую подписку если есть
-    old_sub = session.query(PremiumSubscription).filter_by(user_id=user.id).first()
-    if old_sub:
-        session.delete(old_sub)
-    
-    # Создаем новую подписку
-    new_sub = PremiumSubscription(
-        user_id=user.id,
-        plan_type=plan_type,
-        is_active=True,
-        expires_at=datetime.now() + timedelta(days=days)
-    )
-    session.add(new_sub)
-    session.commit()
-    
-    await update.message.reply_text(
-        success_text,
-        reply_markup=get_premium_keyboard(),
-        parse_mode='Markdown'
-    )
 
 async def show_statistics(update: Update, context: CallbackContext):
     """Показывает статистику мастера - ТОЛЬКО ДЛЯ PRO"""
@@ -204,7 +168,7 @@ async def show_statistics(update: Update, context: CallbackContext):
     
     await update.message.reply_text(
         stats_text,
-        reply_markup=get_settings_keyboard(),  # ВОЗВРАЩАЕМСЯ В МЕНЮ НАСТРОЕК
+        reply_markup=get_settings_keyboard(),
         parse_mode='Markdown'
     )
 
@@ -283,5 +247,3 @@ async def try_free_trial(update: Update, context: CallbackContext):
         reply_markup=get_premium_keyboard(),
         parse_mode='Markdown'
     )
-
-# УДАЛИЛ функцию handle_premium_callbacks - она больше не нужна
