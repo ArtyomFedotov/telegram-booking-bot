@@ -21,7 +21,8 @@ from handlers.clients_handlers import (
 )
 from handlers.settings_handler import (
     settings_menu, premium_features, process_premium_purchase,
-    show_statistics, user_profile, try_free_trial
+    show_statistics, user_profile, try_free_trial,
+    start_payment_from_settings, check_payment_status_from_settings, cancel_payment_from_settings  # 🔽 ДОБАВЛЕНО
 )
 from handlers.booking import start_booking, select_client, select_service, select_date, select_time, confirm_booking, show_active_appointments, SELECT_CLIENT, SELECT_SERVICE, SELECT_DATE, SELECT_TIME, CONFIRM_BOOKING
 from handlers.appointment_handlers import delete_appointment_menu, delete_appointment
@@ -230,9 +231,14 @@ def main():
     application.add_handler(MessageHandler(filters.Regex('^📊 Статистика$'), lambda update, context: show_statistics(update, context)))
     
     # Обработчики премиума
-    application.add_handler(MessageHandler(filters.Regex('^💰 Купить премиум$'), premium_features))  # Изменено с buy_premium на premium_features
+    application.add_handler(MessageHandler(filters.Regex('^💰 Купить премиум$'), premium_features))
     application.add_handler(MessageHandler(filters.Regex('^💼 PRO - 299₽/мес$|^📅 PRO ГОД - 2990₽/год$'), process_premium_purchase))
     application.add_handler(MessageHandler(filters.Regex('^🆓 Попробовать бесплатно$'), try_free_trial))
+    
+    # 🔽 ДОБАВЛЕНО: Обработчики процесса оплаты
+    application.add_handler(MessageHandler(filters.Regex('^✅ Перейти к оплате$'), start_payment_from_settings))
+    application.add_handler(MessageHandler(filters.Regex('^✅ Я оплатил$'), check_payment_status_from_settings))
+    application.add_handler(MessageHandler(filters.Regex('^❌ Отменить$'), cancel_payment_from_settings))
     
     # Обработчики для админ-панели
     application.add_handler(MessageHandler(filters.Regex('^👑 Админка$'), admin_panel))

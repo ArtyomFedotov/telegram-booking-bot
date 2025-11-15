@@ -247,3 +247,124 @@ async def try_free_trial(update: Update, context: CallbackContext):
         reply_markup=get_premium_keyboard(),
         parse_mode='Markdown'
     )
+
+async def start_payment_from_settings(update: Update, context: CallbackContext):
+    """Запуск процесса оплаты из настроек"""
+    from utils.payment_utils import create_premium_payment
+    
+    plan_type = context.user_data.get('plan_type')
+    amount = context.user_data.get('amount')
+    duration_days = context.user_data.get('duration_days')
+    user_id = update.effective_user.id
+    
+    if not all([plan_type, amount, duration_days]):
+        await update.message.reply_text("❌ Ошибка: данные оплаты не найдены")
+        return await settings_menu(update, context)
+    
+    # Создаем платеж
+    description = f"PRO подписка ({'год' if plan_type == 'pro_year' else 'месяц'})"
+    payment = await create_premium_payment(user_id, amount, description, duration_days)
+    
+    if not payment:
+        await update.message.reply_text(
+            "❌ Ошибка при создании платежа. Попробуйте позже.",
+            parse_mode='Markdown'
+        )
+        return await settings_menu(update, context)
+    
+    # Получаем ссылку для оплаты
+    payment_url = payment.confirmation.confirmation_url
+    
+    keyboard = [
+        [KeyboardButton("✅ Я оплатил")],
+        [KeyboardButton("❌ Отменить")]
+    ]
+    
+    text = (
+        f"💳 **Оплата PRO подписки**\n\n"
+        f"Для завершения оплаты:\n"
+        f"1. Перейдите по ссылке: {payment_url}\n"
+        f"2. Оплатите заказ\n"
+        f"3. Вернитесь в бот и нажмите '✅ Я оплатил'\n\n"
+        f"Ссылка для оплаты действительна 24 часа."
+    )
+    
+    context.user_data['payment_id'] = payment.id
+    
+    await update.message.reply_text(
+        text,
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        parse_mode='Markdown'
+    )
+
+async def check_payment_status_from_settings(update: Update, context: CallbackContext):
+    """Проверка статуса платежа из настроек"""
+    from utils.payment_utils import get_payment_info, check_premium_status
+    from database.models import PremiumSubscription
+    from keyboards import get_main_keyboard
+    
+    payment_id = context.user_data.get('payment_id')
+    user_id = update.effective_user.id
+    
+    if not payment_id:
+        await update.message.reply_text("❌ Информация о платеже не найдена")
+        return await settings_menu(update, context)
+    
+    # Проверяем статус платежа
+    payment_info = get_payment_info(payment_id)
+    
+    if not payment_info:
+        await update.message.reply_text("❌ Не удалось проверить статус платежа")
+        return await settings_menu(update, context)
+    
+    # Проверяем статус платежа
+    if payment_info.status == 'succeeded' or check_premium_status(user_id):
+        # Платеж успешен или подписка уже активирована
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
+        
+        if premium:
+            days_left = (premium.expires_at - datetime.now()).days
+            text = (
+                f"🎉 **Оплата успешно завершена!**\n\n"
+                f"✅ PRO подписка активирована!\n"
+                f"📅 Действует до: {premium.expires_at.strftime('%d.%m.%Y')}\n"
+                f"⏰ Осталось дней: {days_left}\n\n"
+                f"Теперь вам доступны все PRO функции!"
+            )
+        else:
+            text = "🎉 **Оплата успешно завершена!**\n\n✅ PRO подписка активирована!"
+            
+    elif payment_info.status == 'pending':
+        text = "⏳ Платеж еще обрабатывается. Попробуйте проверить статус через несколько минут."
+    elif payment_info.status == 'canceled':
+        text = "❌ Платеж отменен."
+    else:
+        text = f"📊 Статус платежа: {payment_info.status}. Попробуйте позже."
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
+    
+    # Возвращаем в главное меню
+    await update.message.reply_text(
+        "Возвращаемся в главное меню:",
+        reply_markup=get_main_keyboard()
+    )
+    
+    context.user_data.clear()
+
+async def cancel_payment_from_settings(update: Update, context: CallbackContext):
+    """Отмена процесса оплаты из настроек"""
+    from keyboards import get_main_keyboard
+    
+    await update.message.reply_text(
+        "❌ Процесс оплаты отменен.",
+        parse_mode='Markdown'
+    )
+    
+    # Возвращаем в главное меню
+    await update.message.reply_text(
+        "Возвращаемся в главное меню:",
+        reply_markup=get_main_keyboard()
+    )
+    
+    context.user_data.clear()
