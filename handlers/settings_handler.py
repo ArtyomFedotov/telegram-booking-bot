@@ -7,7 +7,7 @@ from keyboards import (
 )
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import KeyboardButton, ReplyKeyboardMarkup
 from utils.payment_utils import create_premium_payment, activate_premium_subscription
 
 async def settings_menu(update: Update, context: CallbackContext):
@@ -35,7 +35,7 @@ async def settings_menu(update: Update, context: CallbackContext):
     )
 
 async def premium_features(update: Update, context: CallbackContext):
-    """Премиум функции с инлайн кнопками"""
+    """Премиум функции с ОБЫЧНЫМИ кнопками"""
     user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
     premium = session.query(PremiumSubscription).filter_by(user_id=user.id, is_active=True).first()
     
@@ -54,9 +54,16 @@ async def premium_features(update: Update, context: CallbackContext):
             "✅ Все PRO функции активны!"
         )
         
+        # ОБЫЧНЫЕ КНОПКИ вместо инлайн
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад в настройки", callback_data="back_to_settings")]
+            [KeyboardButton("🔙 Назад в настройки")]
         ]
+        
+        await update.message.reply_text(
+            premium_text,
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+            parse_mode='Markdown'
+        )
         
     else:
         premium_status = "❌ Не активен"
@@ -75,46 +82,18 @@ async def premium_features(update: Update, context: CallbackContext):
             "**Выберите тариф:**"
         )
         
+        # ОБЫЧНЫЕ КНОПКИ вместо инлайн
         keyboard = [
-            [InlineKeyboardButton("💼 PRO - 299₽/мес", callback_data="buy_pro")],
-            [InlineKeyboardButton("📅 PRO ГОД - 2990₽/год", callback_data="buy_pro_year")],
-            [InlineKeyboardButton("🆓 Попробовать бесплатно", callback_data="try_free")],
-            [InlineKeyboardButton("🔙 Назад в настройки", callback_data="back_to_settings")]
+            [KeyboardButton("💼 PRO - 299₽/мес"), KeyboardButton("📅 PRO ГОД - 2990₽/год")],
+            [KeyboardButton("🆓 Попробовать бесплатно")],
+            [KeyboardButton("🔙 Назад в настройки")]
         ]
-    
-    await update.message.reply_text(
-        premium_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-#async def buy_premium(update: Update, context: CallbackContext):
-    #"""Покупка премиума"""
-    #user = session.query(User).filter_by(telegram_id=update.effective_user.id).first()
-    
-    # Текущее использование
-    #clients_count = session.query(Client).filter_by(user_id=user.id).count()
-    #services_count = session.query(Service).filter_by(user_id=user.id).count()
-    
-    #premium_text = (
-        #"💰 **Выберите тариф PRO версии**\n\n"
-        #f"**Текущее использование:**\n"
-        #f"• Клиенты: {clients_count}/10\n"
-        #f"• Услуги: {services_count}/5\n\n"
-        #"**💼 PRO - 299₽/мес**\n"
-        #"• Неограниченно клиентов\n"
-        #"• Неограниченно услуг\n\n"
-        #"**📅 PRO ГОД - 2990₽/год**\n"
-        #"• Всё то же + 2 месяца бесплатно!\n"
-        #"• Экономия 590₽\n\n"
-        #"**Снять все ограничения!**"
-    #)
-    
-    #await update.message.reply_text(
-        #premium_text,
-        #reply_markup=get_premium_plans_keyboard(),
-        #parse_mode='Markdown'
-    #)
+        
+        await update.message.reply_text(
+            premium_text,
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+            parse_mode='Markdown'
+        )
 
 async def process_premium_purchase(update: Update, context: CallbackContext):
     """Обработка покупки премиума"""
@@ -146,6 +125,13 @@ async def process_premium_purchase(update: Update, context: CallbackContext):
             "**Теперь вам доступны все PRO функции!**\n"
             "Для оплаты свяжитесь с администратором."
         )
+    
+    elif update.message.text == '🆓 Попробовать бесплатно':
+        return await try_free_trial(update, context)
+    
+    elif update.message.text == '🔙 Назад в настройки':
+        return await settings_menu(update, context)
+    
     else:
         await update.message.reply_text(
             "Пожалуйста, выберите вариант из списка:",
@@ -298,20 +284,4 @@ async def try_free_trial(update: Update, context: CallbackContext):
         parse_mode='Markdown'
     )
 
-async def handle_premium_callbacks(update: Update, context: CallbackContext):
-    """Обработка callback от кнопок премиума"""
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == 'try_free':
-        return await try_free_trial(update, context)
-    elif query.data == 'back_to_settings':
-        await query.edit_message_text(
-            "Возврат в настройки",
-            reply_markup=get_settings_keyboard()
-        )
-    else:
-        await query.edit_message_text(
-            "Эта функция в разработке",
-            parse_mode='Markdown'
-        )
+# УДАЛИЛ функцию handle_premium_callbacks - она больше не нужна

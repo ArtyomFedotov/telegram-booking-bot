@@ -1,5 +1,5 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
+from telegram.ext import CallbackContext, MessageHandler, filters, ConversationHandler
 from utils.payment_utils import create_premium_payment, activate_premium_subscription, get_payment_info
 from database.models import session, User
 import asyncio
@@ -10,13 +10,16 @@ PAYMENT_CONFIRM, PAYMENT_PROCESS = range(2)
 
 async def start_payment_process(update: Update, context: CallbackContext):
     """Начало процесса оплаты"""
-    query = update.callback_query
-    await query.answer()
+    # Получаем тип плана из текста сообщения
+    message_text = update.message.text
     
-    plan_type = query.data.replace('buy_', '')
+    if "PRO ГОД" in message_text:
+        plan_type = 'pro_year'
+    else:
+        plan_type = 'pro'
     
     if plan_type not in ['pro', 'pro_year']:
-        await query.edit_message_text("❌ Неверный тип подписки")
+        await update.message.reply_text("❌ Неверный тип подписки")
         return ConversationHandler.END
     
     context.user_data['plan_type'] = plan_type
@@ -33,9 +36,10 @@ async def start_payment_process(update: Update, context: CallbackContext):
     context.user_data['amount'] = amount
     context.user_data['duration_days'] = duration_days
     
+    # ОБЫЧНЫЕ КНОПКИ вместо инлайн
     keyboard = [
-        [InlineKeyboardButton("✅ Перейти к оплате", callback_data=f"confirm_payment_{plan_type}")],
-        [InlineKeyboardButton("❌ Отменить", callback_data="cancel_payment")]
+        [KeyboardButton("✅ Перейти к оплате")],
+        [KeyboardButton("❌ Отменить")]
     ]
     
     text = (
@@ -47,12 +51,12 @@ async def start_payment_process(update: Update, context: CallbackContext):
         f"• 👥 Неограниченное количество клиентов\n"
         f"• 💼 Неограниченное количество услуг\n"
         f"• 📊 Полная статистика\n\n"
-        f"Для оплаты нажмите кнопку ниже:"
+        f"Для оплаты нажмите кнопку '✅ Перейти к оплате'"
     )
     
-    await query.edit_message_text(
+    await update.message.reply_text(
         text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
         parse_mode='Markdown'
     )
     
@@ -60,8 +64,10 @@ async def start_payment_process(update: Update, context: CallbackContext):
 
 async def confirm_payment(update: Update, context: CallbackContext):
     """Подтверждение оплаты и создание платежа"""
-    query = update.callback_query
-    await query.answer()
+    user_message = update.message.text
+    
+    if user_message == "❌ Отменить":
+        return await cancel_payment(update, context)
     
     plan_type = context.user_data['plan_type']
     amount = context.user_data['amount']
@@ -73,7 +79,7 @@ async def confirm_payment(update: Update, context: CallbackContext):
     payment = await create_premium_payment(user_id, amount, description, duration_days)
     
     if not payment:
-        await query.edit_message_text(
+        await update.message.reply_text(
             "❌ Ошибка при создании платежа. Попробуйте позже.",
             parse_mode='Markdown'
         )
@@ -82,16 +88,16 @@ async def confirm_payment(update: Update, context: CallbackContext):
     # Получаем ссылку для оплаты
     payment_url = payment.confirmation.confirmation_url
     
+    # ОБЫЧНЫЕ КНОПКИ вместо инлайн
     keyboard = [
-        [InlineKeyboardButton("💳 Перейти к оплате", url=payment_url)],
-        [InlineKeyboardButton("✅ Я оплатил", callback_data="check_payment")],
-        [InlineKeyboardButton("❌ Отменить", callback_data="cancel_payment")]
+        [KeyboardButton("✅ Я оплатил")],
+        [KeyboardButton("❌ Отменить")]
     ]
     
     text = (
         f"💳 **Оплата PRO подписки**\n\n"
         f"Для завершения оплаты:\n"
-        f"1. Нажмите '💳 Перейти к оплате'\n"
+        f"1. Перейдите по ссылке: {payment_url}\n"
         f"2. Оплатите заказ\n"
         f"3. Вернитесь в бот и нажмите '✅ Я оплатил'\n\n"
         f"Ссылка для оплаты действительна 24 часа."
@@ -99,9 +105,9 @@ async def confirm_payment(update: Update, context: CallbackContext):
     
     context.user_data['payment_id'] = payment.id
     
-    await query.edit_message_text(
+    await update.message.reply_text(
         text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
         parse_mode='Markdown'
     )
     
@@ -109,22 +115,19 @@ async def confirm_payment(update: Update, context: CallbackContext):
 
 async def check_payment_status(update: Update, context: CallbackContext):
     """Проверка статуса платежа"""
-    query = update.callback_query
-    await query.answer()
-    
     payment_id = context.user_data.get('payment_id')
     user_id = update.effective_user.id
     duration_days = context.user_data.get('duration_days')
     
     if not payment_id:
-        await query.edit_message_text("❌ Информация о платеже не найдена")
+        await update.message.reply_text("❌ Информация о платеже не найдена")
         return ConversationHandler.END
     
     # Проверяем статус платежа
     payment_info = get_payment_info(payment_id)
     
     if not payment_info:
-        await query.edit_message_text("❌ Не удалось проверить статус платежа")
+        await update.message.reply_text("❌ Не удалось проверить статус платежа")
         return ConversationHandler.END
     
     # Проверяем статус платежа И наличие активной подписки
@@ -157,17 +160,29 @@ async def check_payment_status(update: Update, context: CallbackContext):
     else:
         text = f"📊 Статус платежа: {payment_info.status}"
     
-    await query.edit_message_text(text, parse_mode='Markdown')
+    await update.message.reply_text(text, parse_mode='Markdown')
+    
+    # Возвращаем главное меню
+    from keyboards import get_main_keyboard
+    await update.message.reply_text(
+        "Возвращаемся в главное меню:",
+        reply_markup=get_main_keyboard()
+    )
+    
     return ConversationHandler.END
 
 async def cancel_payment(update: Update, context: CallbackContext):
     """Отмена процесса оплаты"""
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
+    await update.message.reply_text(
         "❌ Процесс оплаты отменен.",
         parse_mode='Markdown'
+    )
+    
+    # Возвращаем главное меню
+    from keyboards import get_main_keyboard
+    await update.message.reply_text(
+        "Возвращаемся в главное меню:",
+        reply_markup=get_main_keyboard()
     )
     
     context.user_data.clear()
@@ -186,18 +201,18 @@ async def get_premium_expiry(user_id):
 # Регистрация обработчиков
 def setup_payment_handlers(application):
     payment_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_payment_process, pattern='^buy_(pro|pro_year)$')],
+        entry_points=[
+            MessageHandler(filters.Text(["💰 Купить PRO", "💼 PRO - 299₽/мес", "📅 PRO ГОД - 2990₽/год"]), start_payment_process)
+        ],
         states={
             PAYMENT_CONFIRM: [
-                CallbackQueryHandler(confirm_payment, pattern='^confirm_payment_'),
-                CallbackQueryHandler(cancel_payment, pattern='^cancel_payment$')
+                MessageHandler(filters.Text(["✅ Перейти к оплате", "❌ Отменить"]), confirm_payment)
             ],
             PAYMENT_PROCESS: [
-                CallbackQueryHandler(check_payment_status, pattern='^check_payment$'),
-                CallbackQueryHandler(cancel_payment, pattern='^cancel_payment$')
+                MessageHandler(filters.Text(["✅ Я оплатил", "❌ Отменить"]), check_payment_status)
             ]
         },
-        fallbacks=[CallbackQueryHandler(cancel_payment, pattern='^cancel_payment$')]
+        fallbacks=[MessageHandler(filters.Text(["❌ Отменить"]), cancel_payment)]
     )
     
     application.add_handler(payment_conv)
